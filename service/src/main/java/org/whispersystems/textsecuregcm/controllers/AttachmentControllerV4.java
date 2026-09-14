@@ -130,8 +130,8 @@ public class AttachmentControllerV4 {
         .record(uploadLength);
 
     final String key = AttachmentUtil.generateAttachmentKey(secureRandom);
-    final boolean useCdn3 = this.experimentEnrollmentManager.isEnrolled(auth.accountIdentifier(), AttachmentUtil.CDN3_EXPERIMENT_NAME);
-    int cdn = useCdn3 ? 3 : 2;
+    // 自建部署: 强制走 CDN3 (tus 服务 + MinIO); 上游实验开关默认未注册(false)会导致走 CDN2 (GCS, 自建不可用)
+    final int cdn = 3;
     final AttachmentGenerator.Descriptor descriptor = this.attachmentGenerators.get(cdn).generateAttachment(key, uploadLength);
     return new AttachmentDescriptorV3(cdn, key, descriptor.headers(), descriptor.signedUploadLocation());
   }

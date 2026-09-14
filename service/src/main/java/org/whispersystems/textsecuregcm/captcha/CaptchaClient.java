@@ -54,7 +54,9 @@ public interface CaptchaClient {
 
       @Override
       public Set<String> validSiteKeys(final Action action) {
-        return Set.of("noop");
+        // NoOp 模式下接受所有 siteKey,避免因 siteKey 不匹配导致 400 错误
+        // 自建服务器不验证 captcha,所有 token 均视为有效
+        return Set.of();
       }
 
       @Override

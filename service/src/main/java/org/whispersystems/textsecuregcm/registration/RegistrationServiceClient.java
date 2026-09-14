@@ -42,9 +42,28 @@ public class RegistrationServiceClient implements Managed {
 
   private static final Base64.Encoder BASE64_UNPADDED_ENCODER = Base64.getEncoder().withoutPadding();
 
+  @Nullable
   private final ManagedChannel channel;
+  @Nullable
   private final RegistrationServiceGrpc.RegistrationServiceBlockingStub stub;
   private final byte[] collationKeySalt;
+
+  /**
+   * Protected 构造函数,供 NoOp 子类使用,不创建 gRPC channel。
+   * 当 RegistrationService 不可用时,使用此构造函数创建一个不连接 gRPC 的实例。
+   */
+  protected RegistrationServiceClient(final byte[] collationKeySalt) {
+    this.channel = null;
+    this.stub = null;
+    this.collationKeySalt = collationKeySalt;
+
+    // Fail fast: reject bad keys
+    try {
+      getInitializedMac(collationKeySalt);
+    } catch (final InvalidKeyException e) {
+      throw new IllegalArgumentException(e);
+    }
+  }
 
   /**
    * @param from an e164 in a {@code long} representation e.g. {@code 18005550123}
@@ -278,6 +297,7 @@ public class RegistrationServiceClient implements Managed {
     if (channel != null) {
       channel.shutdown();
     }
+    // channel 为 null 时(NoOp 模式),无需关闭
   }
 
   private String hmac(final String sourceHost) {

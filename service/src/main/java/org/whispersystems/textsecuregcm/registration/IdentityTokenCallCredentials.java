@@ -71,7 +71,7 @@ public class IdentityTokenCallCredentials extends CallCredentials implements Man
       final IdentityTokenCallCredentials identityTokenCallCredentials = new IdentityTokenCallCredentials(
           RetryConfig.custom()
               .retryOnException(throwable -> true)
-              .maxAttempts(Integer.MAX_VALUE)
+              .maxAttempts(1)
               .intervalFunction(IntervalFunction.ofExponentialRandomBackoff(
                       Duration.ofMillis(100), 1.5, Duration.ofSeconds(5)))
               .build(), impersonatedCredentials, audience, scheduledExecutorService);

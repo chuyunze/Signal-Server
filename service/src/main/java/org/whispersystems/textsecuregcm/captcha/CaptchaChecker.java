@@ -99,7 +99,8 @@ public class CaptchaChecker {
     }
 
     final Set<String> allowedSiteKeys = client.validSiteKeys(parsedAction);
-    if (!allowedSiteKeys.contains(siteKey)) {
+    // 空集合表示接受所有 siteKey(NoOp 模式)
+    if (!allowedSiteKeys.isEmpty() && !allowedSiteKeys.contains(siteKey)) {
       logger.debug("invalid site-key {}, action={}", siteKey, action);
       Metrics.counter(INVALID_SITEKEY_COUNTER_NAME, "action", action).increment();
       throw new InvalidCaptchaArgumentException("invalid captcha site-key");

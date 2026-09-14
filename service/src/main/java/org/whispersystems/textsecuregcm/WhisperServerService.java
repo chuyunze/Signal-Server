@@ -50,6 +50,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
+import java.net.URI;
 import java.net.http.HttpClient;
 import java.nio.charset.StandardCharsets;
 import java.time.Clock;
@@ -358,6 +359,7 @@ import software.amazon.awssdk.regions.Region;
 import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 import software.amazon.awssdk.services.dynamodb.DynamoDbClient;
 import software.amazon.awssdk.services.s3.S3AsyncClient;
+import software.amazon.awssdk.services.s3.S3Configuration;
 
 public class WhisperServerService extends Application<WhisperServerConfiguration> {
 
@@ -529,11 +531,12 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     }
 
     final AwsCredentialsProvider cdnCredentialsProvider = config.getCdnConfiguration().credentials().build();
-    final S3AsyncClient asyncCdnS3Client = S3AsyncClient.builder()
-        .credentialsProvider(cdnCredentialsProvider)
-        .region(Region.of(config.getCdnConfiguration().region()))
-        .endpointOverride(config.getCdnConfiguration().endpointOverride())
-        .build();
+    // 自建部署: endpointOverride 指向 MinIO 时必须启用 path-style 寻址,
+    // 否则 SDK 默认的 virtual-host 寻址会去连 {bucket}.minio 导致 UnknownHost。
+    final S3AsyncClient asyncCdnS3Client = buildCustomEndpointS3AsyncClient(
+        cdnCredentialsProvider,
+        config.getCdnConfiguration().region(),
+        config.getCdnConfiguration().endpointOverride());
 
     BlockingQueue<Runnable> messageDeletionQueue = new LinkedBlockingQueue<>();
     Metrics.gaugeCollectionSize(name(getClass(), "messageDeletionQueueSize"), Collections.emptyList(),
@@ -569,11 +572,12 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     ProfileAvatars profileAvatars = new ProfileAvatars(dynamoDbClient,
         config.getDynamoDbTables().getProfileAvatars().getTableName(), RemoveExpiredAccountsCommand.MAX_IDLE_DURATION, clock);
 
-    S3AsyncClient asyncKeysS3Client = S3AsyncClient.builder()
-        .credentialsProvider(awsCredentialsProvider)
-        .region(Region.of(config.getPagedSingleUseKEMPreKeyStore().region()))
-        .endpointOverride(config.getPagedSingleUseKEMPreKeyStore().endpointOverride())
-        .build();
+    // 自建部署: endpointOverride 指向 MinIO 时必须启用 path-style 寻址,
+    // 否则 Kyber/PQ 预密钥上传时 SDK 会去连 signal-prekeys.minio 导致 500。
+    S3AsyncClient asyncKeysS3Client = buildCustomEndpointS3AsyncClient(
+        awsCredentialsProvider,
+        config.getPagedSingleUseKEMPreKeyStore().region(),
+        config.getPagedSingleUseKEMPreKeyStore().endpointOverride());
     KeysManager keysManager = new KeysManager(
         new SingleUseECPreKeyStore(dynamoDbAsyncClient, config.getDynamoDbTables().getEcKeys().getTableName()),
         new PagedSingleUseKEMPreKeyStore(
@@ -1421,6 +1425,28 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     public static ScheduledExecutorServiceBuilder of(final Environment environment, final String name) {
       return new ScheduledExecutorServiceBuilder(environment.lifecycle(), name);
     }
+  }
+
+  /**
+   * 构建 S3 异步客户端。当配置了自定义 endpoint(自建部署指向 MinIO)时,
+   * 强制启用 path-style 寻址: 请求形如 {@code http://minio:9000/{bucket}/key},
+   * 而不是 SDK 默认 virtual-host 风格的 {@code http://{bucket}.minio:9000/key},
+   * 后者在 Docker 网络内无法解析, 会导致 PUT /v2/keys(上传 PQ 预密钥)返回 500。
+   * 官方 AWS 部署(endpointOverride 为 null)行为保持不变。
+   */
+  private static S3AsyncClient buildCustomEndpointS3AsyncClient(final AwsCredentialsProvider credentialsProvider,
+      final String region,
+      @Nullable final URI endpointOverride) {
+    final software.amazon.awssdk.services.s3.S3AsyncClientBuilder builder = S3AsyncClient.builder()
+        .credentialsProvider(credentialsProvider)
+        .region(Region.of(region));
+    if (endpointOverride != null) {
+      builder.endpointOverride(endpointOverride)
+          .serviceConfiguration(S3Configuration.builder()
+              .pathStyleAccessEnabled(true)
+              .build());
+    }
+    return builder.build();
   }
 
   static void main(String[] args) throws Exception {
