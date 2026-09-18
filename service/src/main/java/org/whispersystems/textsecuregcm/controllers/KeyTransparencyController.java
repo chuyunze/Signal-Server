@@ -94,37 +94,10 @@ public class KeyTransparencyController {
     // Disallow clients from making authenticated requests to this endpoint
     requireNotAuthenticated(authenticatedAccount);
 
-    try {
-      final Optional<E164SearchRequest> maybeE164SearchRequest =
-          request.e164().flatMap(e164 -> request.unidentifiedAccessKey().map(uak ->
-              E164SearchRequest.newBuilder()
-                  .setE164(e164)
-                  .setUnidentifiedAccessKey(ByteString.copyFrom(request.unidentifiedAccessKey().get()))
-                  .build()
-          ));
-
-      final SearchResponseV2 searchResponse =  keyTransparencyServiceClient.search(
-          ByteString.copyFrom(request.aci().toCompactByteArray()),
-          ByteString.copyFrom(request.aciIdentityKey().serialize()),
-          request.usernameHash().map(ByteString::copyFrom),
-          maybeE164SearchRequest,
-          request.lastTreeHeadSize(),
-          request.distinguishedTreeHeadSize());
-
-      if (searchResponse.hasPermissionDenied()) {
-        throw new StatusRuntimeException(Status.PERMISSION_DENIED);
-      }
-
-      if (!searchResponse.hasSearchResponse()) {
-        throw new StatusRuntimeException(Status.UNAVAILABLE.withDescription("Missing search response"));
-      }
-
-      return new KeyTransparencySearchResponse(searchResponse.getSearchResponse().toByteArray());
-    } catch (final StatusRuntimeException exception) {
-      handleKeyTransparencyServiceError(exception);
-    }
-    // This is unreachable
-    return null;
+    // [SELFHOST] 未部署 key-transparency-server (自建环境不必要, 与通话/消息信令链路无关)。
+    // 直接返回空 byte[] 响应, 避免调用不存在的 gRPC 服务产生持续 ERROR 日志和 500。
+    // 客户端收到空响应会 fallback 到无 transparency 模式, 不影响功能。
+    return new KeyTransparencySearchResponse(new byte[0]);
   }
 
   @Operation(
@@ -152,48 +125,8 @@ public class KeyTransparencyController {
     // Disallow clients from making authenticated requests to this endpoint
     requireNotAuthenticated(authenticatedAccount);
 
-    try {
-      final AciMonitorRequest aciMonitorRequest = AciMonitorRequest.newBuilder()
-          .setAci(ByteString.copyFrom(request.aci().value().toCompactByteArray()))
-          .setEntryPosition(request.aci().entryPosition())
-          .setCommitmentIndex(ByteString.copyFrom(request.aci().commitmentIndex()))
-          .build();
-
-      final Optional<UsernameHashMonitorRequest> usernameHashMonitorRequest = request.usernameHash().map(usernameHash ->
-          UsernameHashMonitorRequest.newBuilder()
-              .setUsernameHash(ByteString.copyFrom(usernameHash.value()))
-              .setEntryPosition(usernameHash.entryPosition())
-              .setCommitmentIndex(ByteString.copyFrom(usernameHash.commitmentIndex()))
-              .build());
-
-      final Optional<E164MonitorRequest> e164MonitorRequest = request.e164().map(e164 ->
-          E164MonitorRequest.newBuilder()
-              .setE164(e164.value())
-              .setEntryPosition(e164.entryPosition())
-              .setCommitmentIndex(ByteString.copyFrom(e164.commitmentIndex()))
-              .build());
-
-      final MonitorResponseV2 monitorResponse = keyTransparencyServiceClient.monitor(
-          aciMonitorRequest,
-          usernameHashMonitorRequest,
-          e164MonitorRequest,
-          request.lastNonDistinguishedTreeHeadSize(),
-          request.lastDistinguishedTreeHeadSize());
-
-      if (monitorResponse.hasPermissionDenied()) {
-        throw new StatusRuntimeException(Status.PERMISSION_DENIED);
-      }
-
-      if (!monitorResponse.hasMonitorResponse()) {
-        throw new StatusRuntimeException(Status.UNAVAILABLE.withDescription("Missing monitor response"));
-      }
-
-      return new KeyTransparencyMonitorResponse(monitorResponse.getMonitorResponse().toByteArray());
-    } catch (final StatusRuntimeException exception) {
-      handleKeyTransparencyServiceError(exception);
-    }
-    // This is unreachable
-    return null;
+    // [SELFHOST] 未部署 key-transparency-server, 直接返回空 byte[] 响应。
+    return new KeyTransparencyMonitorResponse(new byte[0]);
   }
 
   @Operation(
@@ -222,15 +155,8 @@ public class KeyTransparencyController {
     // Disallow clients from making authenticated requests to this endpoint
     requireNotAuthenticated(authenticatedAccount);
 
-    try {
-      return new KeyTransparencyDistinguishedKeyResponse(
-          keyTransparencyServiceClient.getDistinguishedKey(lastTreeHeadSize)
-          .toByteArray());
-    } catch (final StatusRuntimeException exception) {
-      handleKeyTransparencyServiceError(exception);
-    }
-    // This is unreachable
-    return null;
+    // [SELFHOST] 未部署 key-transparency-server, 直接返回空 byte[] 响应。
+    return new KeyTransparencyDistinguishedKeyResponse(new byte[0]);
   }
 
   private void handleKeyTransparencyServiceError(final StatusRuntimeException exception) {

@@ -317,7 +317,9 @@
       <dependency>
         <groupId>org.signal</groupId>
         <artifactId>libsignal-server</artifactId>
-        <version>0.101.0</version>
+        <!-- [SELFHOST] 官方 0.101.0 仅在 build-artifacts.signal.org (国内不可达);
+             使用本地发布的 fork 版本 0.100.0-selfhost.1 (与客户端同批从 libsignal fork 发布) -->
+        <version>0.100.0-selfhost.1</version>
       </dependency>
       <dependency>
         <groupId>org.signal</groupId>

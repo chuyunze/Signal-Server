@@ -7,17 +7,15 @@ package org.whispersystems.textsecuregcm.auth;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import io.netty.resolver.dns.DnsNameResolver;
-import jakarta.ws.rs.core.Response;
 import java.io.IOException;
 import java.net.Inet6Address;
+import java.net.InetAddress;
 import java.net.URI;
 import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import javax.annotation.Nullable;
@@ -27,7 +25,6 @@ import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfigurati
 import org.whispersystems.textsecuregcm.experiment.ExperimentEnrollmentManager;
 import org.whispersystems.textsecuregcm.http.FaultTolerantHttpClient;
 import org.whispersystems.textsecuregcm.storage.DynamicConfigurationManager;
-import org.whispersystems.textsecuregcm.util.ExceptionUtils;
 import org.whispersystems.textsecuregcm.util.SystemMapper;
 
 public class CloudflareTurnCredentialsManager {
@@ -45,6 +42,15 @@ public class CloudflareTurnCredentialsManager {
   private final ExperimentEnrollmentManager experimentEnrollmentManager;
 
   private final Duration clientCredentialTtl;
+
+  // [SELFHOST] Cloudflare TURN API is unavailable for self-hosted deployments; vend static
+  // long-term credentials instead, which the local coturn server validates via lt-cred-mech
+  // (turnserver.conf: user=<username>:<password>). Overridable through environment variables
+  // so credentials can be rotated without rebuilding the image.
+  private static final String STATIC_TURN_USERNAME =
+      System.getenv().getOrDefault("TURN_STATIC_USERNAME", "signal");
+  private static final String STATIC_TURN_PASSWORD =
+      System.getenv().getOrDefault("TURN_STATIC_PASSWORD", "signal_turn_secret");
 
   private record CredentialRequest(long ttl) {}
 
@@ -106,7 +112,6 @@ public class CloudflareTurnCredentialsManager {
   }
 
   public TurnToken retrieveFromCloudflare(UUID accountUuid) throws IOException {
-    final List<String> cloudflareTurnComposedUrls;
     final List<String> turnUrls;
     final List<String> turnUrlsWithIps;
     final String turnHostname;
@@ -119,37 +124,25 @@ public class CloudflareTurnCredentialsManager {
       turnUrlsWithIps = this.cloudflareTurnUrlsWithIps;
       turnHostname = this.cloudflareTurnHostname;
     }
+
+    // [SELFHOST] Resolve the hostname locally (works for both DNS names and raw IP literals)
+    // and vend static long-term credentials instead of calling the unreachable Cloudflare API.
+    final InetAddress resolved;
     try {
-      cloudflareTurnComposedUrls = dnsNameResolver.resolveAll(turnHostname).get().stream()
-          .map(i -> switch (i) {
-            case Inet6Address i6 -> "[" + i6.getHostAddress() + "]";
-            default -> i.getHostAddress();
-          })
-          .flatMap(i -> turnUrlsWithIps.stream().map(u -> u.formatted(i)))
-          .toList();
+      resolved = InetAddress.getByName(turnHostname);
     } catch (Exception e) {
       throw new IOException(e);
     }
-
-    final HttpResponse<String> response;
-    try {
-      response = cloudflareTurnClient.sendAsync(getCredentialsRequest, HttpResponse.BodyHandlers.ofString()).join();
-    } catch (CompletionException e) {
-      logger.warn("failed to make http request to Cloudflare Turn: {}", e.getMessage());
-      throw new IOException(ExceptionUtils.unwrap(e));
-    }
-
-    if (response.statusCode() != Response.Status.CREATED.getStatusCode()) {
-      logger.warn("failure request credentials from Cloudflare Turn (code={}): {}", response.statusCode(), response);
-      throw new IOException("Cloudflare Turn http failure : " + response.statusCode());
-    }
-
-    final CloudflareTurnResponse cloudflareTurnResponse = SystemMapper.jsonMapper()
-        .readValue(response.body(), CloudflareTurnResponse.class);
+    final String ip = resolved instanceof Inet6Address
+        ? "[" + resolved.getHostAddress() + "]"
+        : resolved.getHostAddress();
+    final List<String> cloudflareTurnComposedUrls = turnUrlsWithIps.stream()
+        .map(u -> u.formatted(ip))
+        .toList();
 
     return new TurnToken(
-        cloudflareTurnResponse.iceServers().username(),
-        cloudflareTurnResponse.iceServers().credential(),
+        STATIC_TURN_USERNAME,
+        STATIC_TURN_PASSWORD,
         clientCredentialTtl.toSeconds(),
         turnUrls,
         cloudflareTurnComposedUrls,
