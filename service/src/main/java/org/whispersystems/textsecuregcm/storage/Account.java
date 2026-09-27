@@ -168,8 +168,45 @@ public class Account {
   @JsonProperty("totp")
   private Map<Byte, AnnotatedTotpKey> totpKeys = Collections.emptyMap();
 
+  @JsonProperty("as")
+  @Nullable
+  private AccountStatus accountStatus;
+
+  @JsonProperty("asv")
+  private long accountStatusVersion;
+
+  @JsonProperty("asu")
+  @Nullable
+  private Instant accountStatusUpdatedAt;
+
   @JsonIgnore
   private boolean stale;
+
+  public AccountStatus getAccountStatus() {
+    requireNotStale();
+    return accountStatus == null ? AccountStatus.ACTIVE : accountStatus;
+  }
+
+  public boolean isServiceAccessAllowed() {
+    return getAccountStatus().permitsServiceAccess();
+  }
+
+  public long getAccountStatusVersion() {
+    requireNotStale();
+    return accountStatusVersion;
+  }
+
+  public Optional<Instant> getAccountStatusUpdatedAt() {
+    requireNotStale();
+    return Optional.ofNullable(accountStatusUpdatedAt);
+  }
+
+  public void setAccountStatus(final AccountStatus status, final long version, final Instant updatedAt) {
+    requireNotStale();
+    this.accountStatus = Objects.requireNonNull(status);
+    this.accountStatusVersion = version;
+    this.accountStatusUpdatedAt = Objects.requireNonNull(updatedAt);
+  }
 
   public record UsernameHold(@JsonProperty("uh") byte[] usernameHash, @JsonProperty("e") long expirationSecs) {}
 

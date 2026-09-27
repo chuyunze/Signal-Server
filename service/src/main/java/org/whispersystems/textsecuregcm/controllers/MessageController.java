@@ -216,6 +216,12 @@ public class MessageController {
 
       @Context final ContainerRequestContext context) throws RateLimitExceededException {
 
+    // This deployment requires every sender to be attributable to an account so that
+    // administrative suspension cannot be bypassed with unidentified/sealed-sender traffic.
+    if (source.isEmpty()) {
+      throw new NotAuthorizedException("Basic");
+    }
+
     if (groupSendToken != null) {
       if (source.isPresent() || accessKey.isPresent()) {
         throw new BadRequestException("Group send endorsement tokens should not be combined with other authentication");

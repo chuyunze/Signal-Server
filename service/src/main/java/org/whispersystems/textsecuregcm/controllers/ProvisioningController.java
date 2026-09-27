@@ -49,6 +49,8 @@ import org.whispersystems.textsecuregcm.push.ProvisioningManager;
 @Tag(name = "Provisioning")
 public class ProvisioningController {
 
+  private static final boolean MULTI_DEVICE_ENABLED = false;
+
   private final RateLimiters rateLimiters;
   private final ProvisioningManager provisioningManager;
 
@@ -86,6 +88,11 @@ public class ProvisioningController {
 
       @HeaderParam(HttpHeaders.USER_AGENT) final String userAgent)
       throws RateLimitExceededException {
+
+    if (!MULTI_DEVICE_ENABLED) {
+      throw new WebApplicationException(
+          "This service is restricted to one device per account", Response.Status.FORBIDDEN);
+    }
 
     if (message.body().length() > MAX_MESSAGE_SIZE) {
       Metrics.counter(REJECT_OVERSIZE_MESSAGE_COUNTER, Tags.of(UserAgentTagUtil.getPlatformTag(userAgent))).increment();

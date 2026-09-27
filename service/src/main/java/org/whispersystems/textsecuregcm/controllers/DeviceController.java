@@ -88,6 +88,14 @@ import org.whispersystems.textsecuregcm.util.ua.UserAgentUtil;
 @Tag(name = "Devices")
 public class DeviceController {
 
+  private static final boolean MULTI_DEVICE_ENABLED = false;
+
+  private static void requireMultiDeviceEnabled() {
+    if (!MULTI_DEVICE_ENABLED) {
+      throw new ForbiddenException("This service is restricted to one device per account");
+    }
+  }
+
   static final int MAX_DEVICES = 6;
 
   private final AccountsManager accounts;
@@ -193,6 +201,8 @@ public class DeviceController {
   public LinkDeviceToken createDeviceToken(@Auth AuthenticatedDevice auth)
       throws RateLimitExceededException, DeviceLimitExceededException {
 
+    requireMultiDeviceEnabled();
+
     final Account account = accounts.getByAccountIdentifier(auth.accountIdentifier())
         .orElseThrow(() -> new WebApplicationException(Response.Status.UNAUTHORIZED));
 
@@ -232,6 +242,7 @@ public class DeviceController {
       @HeaderParam(HttpHeaders.USER_AGENT) @Nullable String userAgent,
       @NotNull @Valid LinkDeviceRequest linkDeviceRequest)
       throws RateLimitExceededException, DeviceLimitExceededException {
+    requireMultiDeviceEnabled();
     final Account account = accounts.checkDeviceLinkingToken(linkDeviceRequest.verificationCode())
         .flatMap(accounts::getByAccountIdentifier)
         .orElseThrow(ForbiddenException::new);
@@ -356,6 +367,7 @@ public class DeviceController {
               """) final int timeoutSeconds,
 
       @HeaderParam(HttpHeaders.USER_AGENT) String userAgent) {
+    requireMultiDeviceEnabled();
     final AtomicInteger linkedDeviceListenerCounter = getCounterForLinkedDeviceListeners(userAgent);
     linkedDeviceListenerCounter.incrementAndGet();
 
@@ -445,6 +457,8 @@ public class DeviceController {
       @Valid
       final RestoreAccountRequest restoreAccountRequest) {
 
+    requireMultiDeviceEnabled();
+
     return accounts.recordRestoreAccountRequest(token, restoreAccountRequest);
   }
 
@@ -478,6 +492,8 @@ public class DeviceController {
                 device is not available within the given amount of time, this endpoint will return a status of HTTP/204.
               """) final int timeoutSeconds) {
 
+    requireMultiDeviceEnabled();
+
     return accounts.waitForRestoreAccountRequest(token, Duration.ofSeconds(timeoutSeconds))
         .thenApply(maybeRequestReceived -> maybeRequestReceived
             .map(restoreAccountRequest -> Response.status(Response.Status.OK).entity(restoreAccountRequest).build())
@@ -501,6 +517,7 @@ public class DeviceController {
   @ApiResponse(responseCode = "429", description = "Rate-limited; try again after the prescribed delay")
   public CompletionStage<Void> recordTransferArchiveUploaded(@Auth final AuthenticatedDevice authenticatedDevice,
       @NotNull @Valid final TransferArchiveUploadedRequest transferArchiveUploadedRequest) {
+    requireMultiDeviceEnabled();
     return rateLimiters.getUploadTransferArchiveLimiter()
         .validateAsync(authenticatedDevice.accountIdentifier())
         .thenCompose(ignored -> accounts.getByAccountIdentifierAsync(authenticatedDevice.accountIdentifier()))
@@ -547,6 +564,7 @@ public class DeviceController {
 
       @HeaderParam(HttpHeaders.USER_AGENT) @Nullable String userAgent) {
 
+    requireMultiDeviceEnabled();
 
     final String rateLimiterKey = authenticatedDevice.accountIdentifier() + ":" + authenticatedDevice.deviceId();
 

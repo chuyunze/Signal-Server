@@ -77,7 +77,7 @@ import org.whispersystems.textsecuregcm.auth.RegistrationLockError;
 import org.whispersystems.textsecuregcm.auth.RegistrationLockVerificationManager;
 import org.whispersystems.textsecuregcm.auth.UnverifiedRegistrationSessionException;
 import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicConfiguration;
-import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicLoginPurchaseConfiguration;
+import org.whispersystems.textsecuregcm.configuration.dynamic.DynamicNumberlessRegistrationConfiguration;
 import org.whispersystems.textsecuregcm.entities.AccountAttributes;
 import org.whispersystems.textsecuregcm.entities.AccountCreationResponse;
 import org.whispersystems.textsecuregcm.entities.AccountIdentityResponse;
@@ -127,12 +127,15 @@ class RegistrationControllerTest {
   private final PhoneVerificationTokenManager phoneVerificationTokenManager = mock(PhoneVerificationTokenManager.class);
 
   private final RateLimiter registrationLimiter = mock(RateLimiter.class);
+  private final RateLimiter accountRecoveryLimiter = mock(RateLimiter.class);
   private final RateLimiter totpLimiter = mock(RateLimiter.class);
 
   private static final Clock CLOCK = TestClock.pinned(Instant.now());
 
-  private static final DynamicLoginPurchaseConfiguration ENABLED = new DynamicLoginPurchaseConfiguration(true);
-  private static final DynamicLoginPurchaseConfiguration DISABLED = new DynamicLoginPurchaseConfiguration(false);
+  private static final DynamicNumberlessRegistrationConfiguration ENABLED =
+      new DynamicNumberlessRegistrationConfiguration(true);
+  private static final DynamicNumberlessRegistrationConfiguration DISABLED =
+      new DynamicNumberlessRegistrationConfiguration(false);
 
   @SuppressWarnings("unchecked")
   private static final DynamicConfigurationManager<DynamicConfiguration> DYNAMIC_CONFIGURATION_MANAGER =
@@ -154,6 +157,7 @@ class RegistrationControllerTest {
   @BeforeEach
   void setUp() throws Exception {
     when(rateLimiters.getRegistrationLimiter()).thenReturn(registrationLimiter);
+    when(rateLimiters.getAccountRecoveryLimiter()).thenReturn(accountRecoveryLimiter);
     when(rateLimiters.getCheckTotpLimiter()).thenReturn(totpLimiter);
 
     when(accountsManager.update(any(UUID.class), any())).thenAnswer(invocation -> {
@@ -170,7 +174,7 @@ class RegistrationControllerTest {
     reset(DYNAMIC_CONFIGURATION_MANAGER, DYNAMIC_CONFIGURATION);
 
     when(DYNAMIC_CONFIGURATION_MANAGER.getConfiguration()).thenReturn(DYNAMIC_CONFIGURATION);
-    when(DYNAMIC_CONFIGURATION.getLoginPurchaseConfiguration()).thenReturn(ENABLED);
+    when(DYNAMIC_CONFIGURATION.getNumberlessRegistrationConfiguration()).thenReturn(ENABLED);
 
     reset(registrationFraudChecker);
     reset(phoneVerificationTokenManager);
@@ -850,7 +854,7 @@ class RegistrationControllerTest {
     final ReceiptCredentialPresentation receiptCredentialPresentation =
         receiptPresentation(CLOCK.instant().plus(Duration.ofDays(30)), ReceiptLevel.LOGIN.getValue());
 
-    when(DYNAMIC_CONFIGURATION.getLoginPurchaseConfiguration()).thenReturn(DISABLED);
+    when(DYNAMIC_CONFIGURATION.getNumberlessRegistrationConfiguration()).thenReturn(DISABLED);
     final RegistrationRequest registrationRequest = new RegistrationRequest(null,
         new byte[0],
         receiptCredentialPresentation.serialize(),
@@ -1295,6 +1299,191 @@ class RegistrationControllerTest {
     );
 
     verifyNoInteractions(phoneVerificationTokenManager);
+  }
+
+  @Test
+  void recoverAccountWithoutNumberDoesNotRequirePniKeyMaterial() throws RateLimitExceededException {
+    final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+    final IdentityKey aciIdentityKey = new IdentityKey(aciIdentityKeyPair.getPublicKey());
+    final ECSignedPreKey aciSignedPreKey = KeysHelper.signedECPreKey(1, aciIdentityKeyPair);
+    final KEMSignedPreKey aciPqLastResortPreKey = KeysHelper.signedKEMPreKey(2, aciIdentityKeyPair);
+
+    final byte[] deviceName = "numberless".getBytes(StandardCharsets.UTF_8);
+    final int registrationId = 1;
+    final byte[] existingRecoveryPassword = TestRandomUtil.nextBytes(32);
+    final byte[] newRecoveryPassword = TestRandomUtil.nextBytes(32);
+
+    final AccountAttributes accountAttributes = new AccountAttributes(
+        true,
+        registrationId,
+        null,
+        deviceName,
+        null,
+        false,
+        DeviceCapability.CAPABILITIES_REQUIRED_FOR_NEW_DEVICES,
+        newRecoveryPassword)
+        .setUnidentifiedAccessKey(TestRandomUtil.nextBytes(16));
+
+    final Account existingAccount = new Account();
+    existingAccount.setAccountIdentifier(UUID.randomUUID());
+    existingAccount.setAccountRecoveryPassword(existingRecoveryPassword);
+
+    when(accountsManager.getByAccountIdentifier(existingAccount.getAccountIdentifier()))
+        .thenReturn(Optional.of(existingAccount));
+    when(accountsManager.recover(any(), any(), any(), any(), any(), any()))
+        .thenReturn(mock(Account.class));
+
+    final RegistrationRequest registrationRequest = new RegistrationRequest(
+        null,
+        existingRecoveryPassword,
+        null,
+        null,
+        accountAttributes,
+        true,
+        aciIdentityKey,
+        null,
+        new DeviceActivationRequest(
+            aciSignedPreKey,
+            Optional.empty(),
+            aciPqLastResortPreKey,
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()));
+
+    final Invocation.Builder request = resources.getJerseyTest()
+        .target("/v1/registration")
+        .request()
+        .header(HttpHeaders.AUTHORIZATION,
+            AuthHelper.getProvisioningAuthHeader(existingAccount.getAccountIdentifier().toString(), PASSWORD));
+
+    try (final Response response = request.post(Entity.json(requestToJson(registrationRequest)))) {
+      assertEquals(200, response.getStatus());
+      assertTrue(response.readEntity(AccountCreationResponse.class).reregistration());
+    }
+
+    verify(accountRecoveryLimiter).validate(existingAccount.getAccountIdentifier());
+    verify(accountsManager).recover(
+        eq(existingAccount),
+        argThat(attributes -> accountAttributesEqual(attributes, accountAttributes)),
+        eq(aciIdentityKey),
+        eq(Optional.empty()),
+        eq(new DeviceSpec(
+            deviceName,
+            PASSWORD,
+            null,
+            DeviceCapability.CAPABILITIES_REQUIRED_FOR_NEW_DEVICES,
+            new DeviceIdentityInfo(registrationId, aciSignedPreKey, aciPqLastResortPreKey),
+            Optional.empty(),
+            true,
+            Optional.empty(),
+            Optional.empty())),
+        any());
+  }
+
+  @Test
+  void recoverPhoneNumberAccountRequiresPniKeyMaterial() {
+    final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+    final IdentityKey aciIdentityKey = new IdentityKey(aciIdentityKeyPair.getPublicKey());
+    final byte[] existingRecoveryPassword = TestRandomUtil.nextBytes(32);
+
+    final Account existingAccount = new Account();
+    existingAccount.setAccountIdentifier(UUID.randomUUID());
+    existingAccount.setAccountRecoveryPassword(existingRecoveryPassword);
+    existingAccount.setNumber(NUMBER, UUID.randomUUID());
+
+    when(accountsManager.getByAccountIdentifier(existingAccount.getAccountIdentifier()))
+        .thenReturn(Optional.of(existingAccount));
+
+    final AccountAttributes accountAttributes = new AccountAttributes(
+        true,
+        1,
+        null,
+        "phone-account".getBytes(StandardCharsets.UTF_8),
+        null,
+        false,
+        DeviceCapability.CAPABILITIES_REQUIRED_FOR_NEW_DEVICES,
+        TestRandomUtil.nextBytes(32))
+        .setUnidentifiedAccessKey(TestRandomUtil.nextBytes(16));
+
+    final RegistrationRequest registrationRequest = new RegistrationRequest(
+        null,
+        existingRecoveryPassword,
+        null,
+        null,
+        accountAttributes,
+        true,
+        aciIdentityKey,
+        null,
+        new DeviceActivationRequest(
+            KeysHelper.signedECPreKey(1, aciIdentityKeyPair),
+            Optional.empty(),
+            KeysHelper.signedKEMPreKey(2, aciIdentityKeyPair),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()));
+
+    final Invocation.Builder request = resources.getJerseyTest()
+        .target("/v1/registration")
+        .request()
+        .header(HttpHeaders.AUTHORIZATION,
+            AuthHelper.getProvisioningAuthHeader(existingAccount.getAccountIdentifier().toString(), PASSWORD));
+
+    try (final Response response = request.post(Entity.json(requestToJson(registrationRequest)))) {
+      assertEquals(400, response.getStatus());
+    }
+
+    verify(accountsManager, never()).recover(any(), any(), any(), any(), any(), any());
+  }
+
+  @Test
+  void recoverAccountRateLimited() throws RateLimitExceededException {
+    final ECKeyPair aciIdentityKeyPair = ECKeyPair.generate();
+    final IdentityKey aciIdentityKey = new IdentityKey(aciIdentityKeyPair.getPublicKey());
+    final UUID accountIdentifier = UUID.randomUUID();
+
+    final AccountAttributes accountAttributes = new AccountAttributes(
+        true,
+        1,
+        null,
+        "numberless".getBytes(StandardCharsets.UTF_8),
+        null,
+        false,
+        DeviceCapability.CAPABILITIES_REQUIRED_FOR_NEW_DEVICES,
+        TestRandomUtil.nextBytes(32))
+        .setUnidentifiedAccessKey(TestRandomUtil.nextBytes(16));
+
+    final RegistrationRequest registrationRequest = new RegistrationRequest(
+        null,
+        TestRandomUtil.nextBytes(32),
+        null,
+        null,
+        accountAttributes,
+        true,
+        aciIdentityKey,
+        null,
+        new DeviceActivationRequest(
+            KeysHelper.signedECPreKey(1, aciIdentityKeyPair),
+            Optional.empty(),
+            KeysHelper.signedKEMPreKey(2, aciIdentityKeyPair),
+            Optional.empty(),
+            Optional.empty(),
+            Optional.empty()));
+
+    doThrow(new RateLimitExceededException(Duration.ofMinutes(1)))
+        .when(accountRecoveryLimiter).validate(accountIdentifier);
+
+    final Invocation.Builder request = resources.getJerseyTest()
+        .target("/v1/registration")
+        .request()
+        .header(HttpHeaders.AUTHORIZATION,
+            AuthHelper.getProvisioningAuthHeader(accountIdentifier.toString(), PASSWORD));
+
+    try (final Response response = request.post(Entity.json(requestToJson(registrationRequest)))) {
+      assertEquals(429, response.getStatus());
+    }
+
+    verify(accountsManager, never()).getByAccountIdentifier(any());
+    verify(accountsManager, never()).recover(any(), any(), any(), any(), any(), any());
   }
 
   @ParameterizedTest
