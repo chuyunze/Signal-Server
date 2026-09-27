@@ -4,8 +4,10 @@
  */
 package org.whispersystems.textsecuregcm;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import io.dropwizard.core.Configuration;
+import io.dropwizard.core.setup.AdminFactory;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import java.time.Duration;
@@ -391,9 +393,13 @@ public class WhisperServerConfiguration extends Configuration {
   @JsonProperty
   private TotpConfiguration registrationTotp = TotpConfiguration.DEFAULT;
 
+  // [SELFHOST] Dropwizard 5 的 Configuration 基类内置了名为 "admin" 的 AdminFactory 属性
+  // (getter/setter 显式 @JsonProperty("admin"))。jack-patch 在此子类声明的同名字段在
+  // 反序列化时会被父类 setter 抢占，导致 yml 的 admin: 被解析成 AdminFactory。
+  // 下方用 @JsonIgnore 重写父类访问器，使本子类字段成为 "admin" 的唯一绑定目标。
   @Valid
   @NotNull
-  @JsonProperty
+  @JsonProperty("admin")
   private AdminConfiguration admin = AdminConfiguration.DISABLED;
 
   public TlsKeyStoreConfiguration getTlsKeyStoreConfiguration() {
@@ -660,7 +666,22 @@ public class WhisperServerConfiguration extends Configuration {
     return registrationTotp;
   }
 
+  @JsonProperty("admin")
   public AdminConfiguration getAdminConfiguration() {
     return admin;
+  }
+
+  // [SELFHOST] 屏蔽 Dropwizard 基类的同名 "admin" 访问器，避免与 AdminConfiguration 冲突；
+  // 仍委托给父类，保证 Dropwizard 内部能拿到默认的 AdminFactory。
+  @JsonIgnore
+  @Override
+  public AdminFactory getAdminFactory() {
+    return super.getAdminFactory();
+  }
+
+  @JsonIgnore
+  @Override
+  public void setAdminFactory(final AdminFactory adminFactory) {
+    super.setAdminFactory(adminFactory);
   }
 }
