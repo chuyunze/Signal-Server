@@ -10,11 +10,13 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyByte;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 import io.dropwizard.auth.basic.BasicCredentials;
@@ -29,7 +31,6 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.junit.jupiter.params.provider.ValueSource;
-import org.junitpioneer.jupiter.cartesian.CartesianTest;
 import org.whispersystems.textsecuregcm.storage.Account;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
 import org.whispersystems.textsecuregcm.storage.Device;
@@ -152,6 +153,7 @@ class AccountAuthenticatorTest {
 
     clock.unpin();
     when(accountsManager.getByAccountIdentifier(uuid)).thenReturn(Optional.of(account));
+    when(account.isServiceAccessAllowed()).thenReturn(true);
     when(account.getAccountIdentifier()).thenReturn(uuid);
     when(account.getDevice(deviceId)).thenReturn(Optional.of(device));
     when(account.getPrimaryDevice()).thenReturn(device);
@@ -168,64 +170,16 @@ class AccountAuthenticatorTest {
   }
 
   @Test
-  void testAuthenticateNonDefaultDevice() {
+  void testRejectsNonPrimaryDevice() {
     final UUID uuid = UUID.randomUUID();
     final byte deviceId = 2;
     final String password = "12345";
 
-    final Account account = mock(Account.class);
-    final Device device = mock(Device.class);
-    final SaltedTokenHash credentials = mock(SaltedTokenHash.class);
-
-    clock.unpin();
-    when(accountsManager.getByAccountIdentifier(uuid)).thenReturn(Optional.of(account));
-    when(account.getAccountIdentifier()).thenReturn(uuid);
-    when(account.getDevice(deviceId)).thenReturn(Optional.of(device));
-    when(account.getPrimaryDevice()).thenReturn(device);
-    when(device.getId()).thenReturn(deviceId);
-    when(device.getAuthTokenHash()).thenReturn(credentials);
-    when(credentials.verify(password)).thenReturn(true);
-
     final Optional<AuthenticatedDevice> maybeAuthenticatedAccount =
         accountAuthenticator.authenticate(new BasicCredentials(uuid + "." + deviceId, password));
 
-    assertThat(maybeAuthenticatedAccount).isPresent();
-    assertThat(maybeAuthenticatedAccount.orElseThrow().accountIdentifier()).isEqualTo(uuid);
-    assertThat(maybeAuthenticatedAccount.orElseThrow().deviceId()).isEqualTo(device.getId());
-  }
-
-  @CartesianTest
-  void testAuthenticateEnabled(
-      @CartesianTest.Values(booleans = {true, false}) final boolean authenticatedDeviceIsPrimary) {
-    final UUID uuid = UUID.randomUUID();
-    final byte deviceId = (byte) (authenticatedDeviceIsPrimary ? 1 : 2);
-    final String password = "12345";
-
-    final Account account = mock(Account.class);
-    final Device authenticatedDevice = mock(Device.class);
-    final SaltedTokenHash credentials = mock(SaltedTokenHash.class);
-
-    clock.unpin();
-    when(accountsManager.getByAccountIdentifier(uuid)).thenReturn(Optional.of(account));
-    when(account.getAccountIdentifier()).thenReturn(uuid);
-    when(account.getDevice(deviceId)).thenReturn(Optional.of(authenticatedDevice));
-    when(account.getPrimaryDevice()).thenReturn(authenticatedDevice);
-    when(authenticatedDevice.getId()).thenReturn(deviceId);
-    when(authenticatedDevice.getAuthTokenHash()).thenReturn(credentials);
-    when(credentials.verify(password)).thenReturn(true);
-
-    final String identifier;
-    if (authenticatedDeviceIsPrimary) {
-      identifier = uuid.toString();
-    } else {
-      identifier = uuid.toString() + AccountAuthenticator.DEVICE_ID_SEPARATOR + deviceId;
-    }
-    final Optional<AuthenticatedDevice> maybeAuthenticatedAccount =
-        accountAuthenticator.authenticate(new BasicCredentials(identifier, password));
-
-    assertThat(maybeAuthenticatedAccount).isPresent();
-    assertThat(maybeAuthenticatedAccount.orElseThrow().accountIdentifier()).isEqualTo(uuid);
-    assertThat(maybeAuthenticatedAccount.orElseThrow().deviceId()).isEqualTo(authenticatedDevice.getId());
+    assertThat(maybeAuthenticatedAccount).isEmpty();
+    verifyNoInteractions(accountsManager);
   }
 
   @Test
@@ -240,24 +194,11 @@ class AccountAuthenticatorTest {
     final byte deviceId = 1;
     final String password = "12345";
 
-    final Account account = mock(Account.class);
-    final Device device = mock(Device.class);
-    final SaltedTokenHash credentials = mock(SaltedTokenHash.class);
-
-    clock.unpin();
-    when(accountsManager.getByAccountIdentifier(uuid)).thenReturn(Optional.of(account));
-    when(account.getAccountIdentifier()).thenReturn(uuid);
-    when(account.getDevice(deviceId)).thenReturn(Optional.of(device));
-    when(account.getPrimaryDevice()).thenReturn(device);
-    when(device.getId()).thenReturn(deviceId);
-    when(device.getAuthTokenHash()).thenReturn(credentials);
-    when(credentials.verify(password)).thenReturn(true);
-
     final Optional<AuthenticatedDevice> maybeAuthenticatedAccount =
         accountAuthenticator.authenticate(new BasicCredentials(uuid + "." + (deviceId + 1), password));
 
     assertThat(maybeAuthenticatedAccount).isEmpty();
-    verify(account).getDevice((byte) (deviceId + 1));
+    verifyNoInteractions(accountsManager);
   }
 
   @Test
@@ -272,6 +213,7 @@ class AccountAuthenticatorTest {
 
     clock.unpin();
     when(accountsManager.getByAccountIdentifier(uuid)).thenReturn(Optional.of(account));
+    when(account.isServiceAccessAllowed()).thenReturn(true);
     when(account.getAccountIdentifier()).thenReturn(uuid);
     when(account.getDevice(deviceId)).thenReturn(Optional.of(device));
     when(account.getPrimaryDevice()).thenReturn(device);
@@ -286,6 +228,18 @@ class AccountAuthenticatorTest {
 
     assertThat(maybeAuthenticatedAccount).isEmpty();
     verify(credentials).verify(incorrectPassword);
+  }
+
+  @Test
+  void testRejectsRestrictedAccountBeforeCheckingDeviceCredentials() {
+    final UUID uuid = UUID.randomUUID();
+    final Account account = mock(Account.class);
+
+    when(accountsManager.getByAccountIdentifier(uuid)).thenReturn(Optional.of(account));
+    when(account.isServiceAccessAllowed()).thenReturn(false);
+
+    assertThat(accountAuthenticator.authenticate(new BasicCredentials(uuid.toString(), "password"))).isEmpty();
+    verify(account, never()).getDevice(anyByte());
   }
 
   @ParameterizedTest

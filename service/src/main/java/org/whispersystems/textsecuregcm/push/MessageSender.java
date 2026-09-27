@@ -117,6 +117,12 @@ public class MessageSender {
       @Nullable final String userAgent)
       throws MismatchedDevicesException, MessageTooLargeException, MessageDeliveryNotAllowedException {
 
+    // Enforce destination state here so identified, sealed-sender, story, receipt,
+    // REST, and gRPC delivery paths cannot bypass account suspension.
+    if (!destination.isServiceAccessAllowed()) {
+      throw new MessageDeliveryNotAllowedException();
+    }
+
     if (dynamicConfigurationManager.getConfiguration().getMessageDeliveryConfiguration().isReadOnly()) {
       throw new MessageDeliveryNotAllowedException();
     }

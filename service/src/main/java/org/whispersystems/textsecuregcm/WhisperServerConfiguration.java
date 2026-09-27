@@ -13,6 +13,7 @@ import java.util.Collections;
 import java.util.Map;
 import org.whispersystems.textsecuregcm.attachments.TusConfiguration;
 import org.whispersystems.textsecuregcm.configuration.ApnConfiguration;
+import org.whispersystems.textsecuregcm.configuration.AdminConfiguration;
 import org.whispersystems.textsecuregcm.configuration.AppleAppStoreConfiguration;
 import org.whispersystems.textsecuregcm.configuration.AppleDeviceCheckConfiguration;
 import org.whispersystems.textsecuregcm.configuration.AttachmentsConfiguration;
@@ -390,6 +391,11 @@ public class WhisperServerConfiguration extends Configuration {
   @JsonProperty
   private TotpConfiguration registrationTotp = TotpConfiguration.DEFAULT;
 
+  @Valid
+  @NotNull
+  @JsonProperty
+  private AdminConfiguration admin = AdminConfiguration.DISABLED;
+
   public TlsKeyStoreConfiguration getTlsKeyStoreConfiguration() {
     return tlsKeyStore;
   }
@@ -652,5 +658,9 @@ public class WhisperServerConfiguration extends Configuration {
 
   public TotpConfiguration getRegistrationTotpConfiguration() {
     return registrationTotp;
+  }
+
+  public AdminConfiguration getAdminConfiguration() {
+    return admin;
   }
 }

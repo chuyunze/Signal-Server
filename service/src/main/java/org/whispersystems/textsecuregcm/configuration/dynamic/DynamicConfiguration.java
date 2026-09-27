@@ -89,6 +89,11 @@ public class DynamicConfiguration {
   @Valid
   private DynamicLoginPurchaseConfiguration loginPurchase = new DynamicLoginPurchaseConfiguration(false);
 
+  @JsonProperty
+  @Valid
+  private DynamicNumberlessRegistrationConfiguration numberlessRegistration =
+      new DynamicNumberlessRegistrationConfiguration(false);
+
   public Optional<DynamicExperimentEnrollmentConfiguration> getExperimentEnrollmentConfiguration(
       final String experimentName) {
     return Optional.ofNullable(experiments.get(experimentName));
@@ -161,5 +166,9 @@ public class DynamicConfiguration {
 
   public DynamicLoginPurchaseConfiguration getLoginPurchaseConfiguration() {
     return loginPurchase;
+  }
+
+  public DynamicNumberlessRegistrationConfiguration getNumberlessRegistrationConfiguration() {
+    return numberlessRegistration;
   }
 }

@@ -27,6 +27,8 @@ import org.whispersystems.textsecuregcm.util.Util;
 
 public class AccountAuthenticator implements Authenticator<BasicCredentials, AuthenticatedDevice> {
 
+  private static final boolean MULTI_DEVICE_ENABLED = false;
+
   private static final String AUTHENTICATION_COUNTER_NAME = name(AccountAuthenticator.class, "authentication");
   private static final String AUTHENTICATION_SUCCEEDED_TAG_NAME = "succeeded";
   private static final String AUTHENTICATION_FAILURE_REASON_TAG_NAME = "reason";
@@ -82,10 +84,20 @@ public class AccountAuthenticator implements Authenticator<BasicCredentials, Aut
         deviceId = identifierAndDeviceId.second();
       }
 
+      if (!MULTI_DEVICE_ENABLED && deviceId != Device.PRIMARY_ID) {
+        failureReason = "secondaryDevicesDisabled";
+        return Optional.empty();
+      }
+
       Optional<Account> account = accountsManager.getByAccountIdentifier(accountUuid);
 
       if (account.isEmpty()) {
         failureReason = "noSuchAccount";
+        return Optional.empty();
+      }
+
+      if (!account.get().isServiceAccessAllowed()) {
+        failureReason = "accountRestricted";
         return Optional.empty();
       }
 

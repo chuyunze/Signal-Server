@@ -89,6 +89,7 @@ import org.whispersystems.textsecuregcm.asn.AsnInfoProviderImpl;
 import org.whispersystems.textsecuregcm.attachments.GcsAttachmentGenerator;
 import org.whispersystems.textsecuregcm.attachments.TusAttachmentGenerator;
 import org.whispersystems.textsecuregcm.auth.AccountAuthenticator;
+import org.whispersystems.textsecuregcm.auth.AdminAuthorizer;
 import org.whispersystems.textsecuregcm.auth.AuthenticatedDevice;
 import org.whispersystems.textsecuregcm.auth.CertificateGenerator;
 import org.whispersystems.textsecuregcm.auth.CloudflareTurnCredentialsManager;
@@ -116,7 +117,9 @@ import org.whispersystems.textsecuregcm.configuration.secrets.SecretStore;
 import org.whispersystems.textsecuregcm.configuration.secrets.SecretsModule;
 import org.whispersystems.textsecuregcm.controllers.AccountController;
 import org.whispersystems.textsecuregcm.controllers.AccountControllerV2;
-import org.whispersystems.textsecuregcm.controllers.ArchiveController;
+import org.whispersystems.textsecuregcm.controllers.AccountStatusController;
+import org.whispersystems.textsecuregcm.controllers.AdminController;
+import org.whispersystems.textsecuregcm.controllers.AdminConsoleController;
 import org.whispersystems.textsecuregcm.controllers.AttachmentControllerV4;
 import org.whispersystems.textsecuregcm.controllers.CallLinkController;
 import org.whispersystems.textsecuregcm.controllers.CallQualitySurveyController;
@@ -129,6 +132,7 @@ import org.whispersystems.textsecuregcm.controllers.DirectoryV2Controller;
 import org.whispersystems.textsecuregcm.controllers.DonationController;
 import org.whispersystems.textsecuregcm.controllers.KeepAliveController;
 import org.whispersystems.textsecuregcm.controllers.KeyTransparencyController;
+import org.whispersystems.textsecuregcm.controllers.InvitationController;
 import org.whispersystems.textsecuregcm.controllers.KeysController;
 import org.whispersystems.textsecuregcm.controllers.LoginPurchaseController;
 import org.whispersystems.textsecuregcm.controllers.MessageController;
@@ -158,8 +162,6 @@ import org.whispersystems.textsecuregcm.filters.TimestampResponseFilter;
 import org.whispersystems.textsecuregcm.grpc.AccountsAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.AccountsGrpcService;
 import org.whispersystems.textsecuregcm.grpc.AttachmentsGrpcService;
-import org.whispersystems.textsecuregcm.grpc.BackupsAnonymousGrpcService;
-import org.whispersystems.textsecuregcm.grpc.BackupsGrpcService;
 import org.whispersystems.textsecuregcm.grpc.CallQualitySurveyGrpcService;
 import org.whispersystems.textsecuregcm.grpc.CallingGrpcService;
 import org.whispersystems.textsecuregcm.grpc.ChallengeGrpcService;
@@ -177,7 +179,6 @@ import org.whispersystems.textsecuregcm.grpc.KeysAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.KeysGrpcService;
 import org.whispersystems.textsecuregcm.grpc.LoginPurchaseGrpcService;
 import org.whispersystems.textsecuregcm.grpc.MessageDispatcher;
-import org.whispersystems.textsecuregcm.grpc.MessagesAnonymousGrpcService;
 import org.whispersystems.textsecuregcm.grpc.MessagesGrpcService;
 import org.whispersystems.textsecuregcm.grpc.MetricServerInterceptor;
 import org.whispersystems.textsecuregcm.grpc.OneTimeDonationsGrpcService;
@@ -254,6 +255,7 @@ import org.whispersystems.textsecuregcm.spam.SpamFilter;
 import org.whispersystems.textsecuregcm.storage.AccountLockManager;
 import org.whispersystems.textsecuregcm.storage.Accounts;
 import org.whispersystems.textsecuregcm.storage.AccountsManager;
+import org.whispersystems.textsecuregcm.storage.AdminAuditManager;
 import org.whispersystems.textsecuregcm.storage.ChangeNumberManager;
 import org.whispersystems.textsecuregcm.storage.ChangeNumberWaitingPeriodManager;
 import org.whispersystems.textsecuregcm.storage.ChangeNumberWaitingPeriods;
@@ -264,6 +266,7 @@ import org.whispersystems.textsecuregcm.storage.DonationPermitsManager;
 import org.whispersystems.textsecuregcm.storage.DynamicConfigurationManager;
 import org.whispersystems.textsecuregcm.storage.FoundationDbVersion;
 import org.whispersystems.textsecuregcm.storage.IssuedReceiptsManager;
+import org.whispersystems.textsecuregcm.storage.InvitationsManager;
 import org.whispersystems.textsecuregcm.storage.KeysManager;
 import org.whispersystems.textsecuregcm.storage.MessagesCache;
 import org.whispersystems.textsecuregcm.storage.MessagesDynamoDb;
@@ -327,6 +330,8 @@ import org.whispersystems.textsecuregcm.workers.CertificateCommand;
 import org.whispersystems.textsecuregcm.workers.CheckDynamicConfigurationCommand;
 import org.whispersystems.textsecuregcm.workers.ClearExpiredFoundationDbMessagesCommand;
 import org.whispersystems.textsecuregcm.workers.ClearIssuedReceiptRedemptionsCommand;
+import org.whispersystems.textsecuregcm.workers.CreateInvitationBatchCommand;
+import org.whispersystems.textsecuregcm.workers.SetAccountStatusCommand;
 import org.whispersystems.textsecuregcm.workers.ClearOrphanedFoundationDbQueuesCommand;
 import org.whispersystems.textsecuregcm.workers.CopyToS3Command;
 import org.whispersystems.textsecuregcm.workers.DeleteUserCommand;
@@ -403,6 +408,8 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     bootstrap.addCommand(new UnlinkDevicesWithIdlePrimaryCommand(Clock.systemUTC()));
     bootstrap.addCommand(new NotifyIdleDevicesCommand());
     bootstrap.addCommand(new ClearIssuedReceiptRedemptionsCommand());
+    bootstrap.addCommand(new CreateInvitationBatchCommand());
+    bootstrap.addCommand(new SetAccountStatusCommand());
     bootstrap.addCommand(new CopyToS3Command());
     bootstrap.addCommand(new ClearExpiredFoundationDbMessagesCommand(Clock.systemUTC()));
     bootstrap.addCommand(new TrimOversizedFoundationDbMessageQueuesCommand());
@@ -947,6 +954,14 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     ServerZkAuthOperations zkAuthOperations = new ServerZkAuthOperations(groupZkSecretParams);
     // ZK receipts are not actually shared with ZK groups, but use the same extensible parameters object for legacy reasons
     ServerZkReceiptOperations zkReceiptOperations = new ServerZkReceiptOperations(groupZkSecretParams);
+    InvitationsManager invitationsManager = new InvitationsManager(
+        config.getDynamoDbTables().getIssuedReceipts().getTableName(),
+        dynamoDbClient,
+        config.getDynamoDbTables().getIssuedReceipts().getGenerator(),
+        zkReceiptOperations,
+        clock);
+    final AdminAuditManager adminAuditManager = new AdminAuditManager(
+        config.getDynamoDbTables().getIssuedReceipts().getTableName(), dynamoDbClient, clock);
 
     TusAttachmentGenerator tusAttachmentGenerator = new TusAttachmentGenerator(config.getTus());
     Cdn3BackupCredentialGenerator cdn3BackupCredentialGenerator = new Cdn3BackupCredentialGenerator(config.getTus());
@@ -1114,7 +1129,6 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             new KeysGrpcService(accountsManager, keysManager, rateLimiters),
             new ProfileGrpcService(clock, accountsManager, profilesManager, asnInfoProviderSupplier, dynamicConfigurationManager, config.getBadges(), profileCdnPolicyGenerator, chatGenericZkSecretParams, profileBadgeConverter, rateLimiters),
             new MessagesGrpcService(accountsManager, rateLimiters, messageSender, messageByteLimitCardinalityEstimator, spamChecker, messageDispatcher, Clock.systemUTC()),
-            new BackupsGrpcService(accountsManager, backupAuthManager, backupMetrics),
             new DevicesGrpcService(accountsManager),
             new AttachmentsGrpcService(experimentEnrollmentManager, rateLimiters, gcsAttachmentGenerator,
                 tusAttachmentGenerator, stickerPolicyGenerator,
@@ -1148,8 +1162,6 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             new KeyTransparencyGrpcService(rateLimiters, keyTransparencyServiceClient),
             new LoginPurchaseGrpcService(loginPurchaseManager, dynamicConfigurationManager),
             new ProfileAnonymousGrpcService(accountsManager, profilesManager, profileBadgeConverter, profileCdnPolicyGenerator, chatGenericZkSecretParams, groupZkSecretParams, rateLimiters, clock),
-            new MessagesAnonymousGrpcService(accountsManager, rateLimiters, messageSender, groupSendTokenUtil, messageByteLimitCardinalityEstimator, spamChecker, Clock.systemUTC()),
-            new BackupsAnonymousGrpcService(backupManager, backupMetrics, config.getAttachments().maxAttachmentUploadSizeInBytes(), config.getAttachments().maxMessageBackupUploadSizeInBytes()),
             new CredentialsAnonymousGrpcService(accountsManager, ExternalServiceDefinitions.SVR.generatorFactory().apply(config, Clock.systemUTC())),
             new SubscriptionsGrpcService(clock, config.getSubscription(), subscriptionManager, donationPermitsManager,
                 stripeManager, braintreeManager, googlePlayBillingManager, appleAppStoreManager, bankMandateTranslator),
@@ -1265,9 +1277,9 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
         new AccountController(accountsManager, rateLimiters, phoneNumberRecoveryPasswordsManager,
             usernameHashZkProofVerifier),
         new AccountControllerV2(accountsManager, changeNumberManager),
+        new AccountStatusController(accountsManager),
         new AttachmentControllerV4(rateLimiters, gcsAttachmentGenerator, tusAttachmentGenerator,
             experimentEnrollmentManager, config.getAttachments().maxAttachmentUploadSizeInBytes()),
-        new ArchiveController(accountsManager, backupAuthManager, backupManager, backupMetrics, config.getAttachments().maxAttachmentUploadSizeInBytes(), config.getAttachments().maxMessageBackupUploadSizeInBytes()),
         new CallRoutingControllerV2(rateLimiters, cloudflareTurnCredentialsManager),
         new CallLinkController(rateLimiters, callingGenericZkSecretParams, callingPreV101GenericZkSecretParams),
         new CallQualitySurveyController(callQualitySurveyManager),
@@ -1281,6 +1293,7 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
             ReceiptCredentialPresentation::new, donationPermitsManager, rateLimiters),
         new KeysController(rateLimiters, keysManager, accountsManager, groupZkSecretParams, Clock.systemUTC()),
         new KeyTransparencyController(keyTransparencyServiceClient),
+        new InvitationController(invitationsManager, dynamicConfigurationManager),
         new MessageController(rateLimiters, messageByteLimitCardinalityEstimator, messageSender, accountsManager,
             phoneNumberIdentifiers, reportMessageManager, groupZkSecretParams, spamChecker, Clock.systemUTC()),
         new PaymentsController(currencyManager, paymentsCredentialsGenerator),
@@ -1312,6 +1325,15 @@ public class WhisperServerService extends Application<WhisperServerConfiguration
     for (Object controller : commonControllers) {
       environment.jersey().register(controller);
       webSocketEnvironment.jersey().register(controller);
+    }
+
+    if (config.getAdminConfiguration().enabled()) {
+      // Deploy this route only behind the isolated admin gateway/domain. It is deliberately
+      // not registered on the websocket Jersey environment.
+      environment.jersey().register(new AdminController(
+          new AdminAuthorizer(config.getAdminConfiguration(), clock), accountsManager,
+          invitationsManager, adminAuditManager, clock));
+      environment.jersey().register(new AdminConsoleController());
     }
 
     WebSocketEnvironment<AuthenticatedDevice> provisioningEnvironment = new WebSocketEnvironment<>(environment,

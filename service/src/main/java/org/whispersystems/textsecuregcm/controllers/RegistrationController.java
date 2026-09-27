@@ -330,8 +330,8 @@ public class RegistrationController {
       final String userAgent,
       final String signalAgent) {
 
-    if (!dynamicConfigurationManager.getConfiguration().getLoginPurchaseConfiguration().enabled()) {
-      throw new BadRequestException("login purchases are not enabled");
+    if (!dynamicConfigurationManager.getConfiguration().getNumberlessRegistrationConfiguration().enabled()) {
+      throw new BadRequestException("numberless registration is not enabled");
     }
 
     registrationRequest.accountAttributes().recoveryPassword()
@@ -396,8 +396,8 @@ public class RegistrationController {
       final String userAgent,
       final String signalAgent) throws RegistrationLockFailureException, RateLimitExceededException {
 
-    if (!dynamicConfigurationManager.getConfiguration().getLoginPurchaseConfiguration().enabled()) {
-      throw new BadRequestException("login purchases are not enabled");
+    if (!dynamicConfigurationManager.getConfiguration().getNumberlessRegistrationConfiguration().enabled()) {
+      throw new BadRequestException("numberless registration is not enabled");
     }
 
     if (ArrayUtils.isEmpty(registrationRequest.recoveryPassword())) {
@@ -408,12 +408,20 @@ public class RegistrationController {
       throw new BadRequestException("Recovery password required for for storage when recovering an account by identifier");
     }
 
-    if (registrationRequest.pniIdentityKey() == null) {
-      throw new BadRequestException("Must specify a PNI-associated identity key when recovering an account by identifier");
-    }
+    rateLimiters.getAccountRecoveryLimiter().validate(accountIdentifier);
 
     final Account existingAccount = accounts.getByAccountIdentifier(accountIdentifier)
             .orElseThrow(ForbiddenException::new);
+
+    if (!existingAccount.isServiceAccessAllowed()) {
+      // Do not disclose whether the account exists or is administratively restricted.
+      throw new ForbiddenException();
+    }
+
+    if (existingAccount.getNumber().isPresent() && registrationRequest.pniIdentityKey() == null) {
+      throw new BadRequestException(
+          "Must specify a PNI-associated identity key when recovering an account with a phone number");
+    }
 
     final boolean passwordVerified = existingAccount.getAccountRecoveryPassword()
         .map(saltedRecoveryPasswordHash -> PhoneNumberRecoveryPasswordsManager.verify(saltedRecoveryPasswordHash, registrationRequest.recoveryPassword()))

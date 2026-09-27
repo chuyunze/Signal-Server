@@ -37,6 +37,8 @@ public class RateLimiters extends BaseRateLimiters<RateLimiters.For> {
     USERNAME_LINK_LOOKUP_PER_IP("usernameLinkLookupPerIp", new RateLimiterConfig(100, Duration.ofSeconds(15), true)),
     CHECK_ACCOUNT_EXISTENCE("checkAccountExistence", new RateLimiterConfig(1000, Duration.ofSeconds(4), true)),
     REGISTRATION("registration", new RateLimiterConfig(6, Duration.ofSeconds(30), false)),
+    INVITATION_CLAIM("invitationClaim", new RateLimiterConfig(10, Duration.ofMinutes(1), true)),
+    ACCOUNT_RECOVERY("accountRecovery", new RateLimiterConfig(5, Duration.ofHours(1), false)),
     SET_ZK_CREDENTIAL_KEY("setZkCredentialKey", new RateLimiterConfig(5, Duration.ofDays(7), false)),
     VERIFICATION_PUSH_CHALLENGE("verificationPushChallenge", new RateLimiterConfig(5, Duration.ofSeconds(30), false)),
     VERIFICATION_CAPTCHA("verificationCaptcha", new RateLimiterConfig(10, Duration.ofSeconds(30), false)),
@@ -170,6 +172,10 @@ public class RateLimiters extends BaseRateLimiters<RateLimiters.For> {
 
   public RateLimiter getRegistrationLimiter() {
     return forDescriptor(For.REGISTRATION);
+  }
+
+  public RateLimiter getAccountRecoveryLimiter() {
+    return forDescriptor(For.ACCOUNT_RECOVERY);
   }
 
   public RateLimiter getMessagesLimiter() {

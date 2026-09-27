@@ -1459,6 +1459,10 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     return accounts.getAll(segments, scheduler);
   }
 
+  public void disconnectAllDevices(final Account account) {
+    disconnectionRequestManager.requestDisconnection(account);
+  }
+
   public void delete(final UUID accountIdentifier, final DeletionReason deletionReason) {
     final Timer.Sample sample = Timer.start();
 

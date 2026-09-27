@@ -35,6 +35,24 @@ class DynamicConfigurationTest {
       """;
 
   @Test
+  void testNumberlessRegistrationDefaultsToDisabledAndCanBeEnabled() {
+    final DynamicConfiguration defaultConfiguration = DynamicConfigurationManager
+        .parseConfiguration(REQUIRED_CONFIG, DynamicConfiguration.class)
+        .orElseThrow();
+
+    assertFalse(defaultConfiguration.getNumberlessRegistrationConfiguration().enabled());
+
+    final DynamicConfiguration enabledConfiguration = DynamicConfigurationManager
+        .parseConfiguration(REQUIRED_CONFIG.concat("""
+            numberlessRegistration:
+              enabled: true
+            """), DynamicConfiguration.class)
+        .orElseThrow();
+
+    assertTrue(enabledConfiguration.getNumberlessRegistrationConfiguration().enabled());
+  }
+
+  @Test
   void testParseExperimentConfig() throws JsonProcessingException {
     {
       final String emptyConfigYaml = REQUIRED_CONFIG.concat("test: true");

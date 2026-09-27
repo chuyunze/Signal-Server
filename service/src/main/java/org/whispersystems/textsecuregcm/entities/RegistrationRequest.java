@@ -84,10 +84,9 @@ public record RegistrationRequest(@Schema(requiredMode = Schema.RequiredMode.NOT
                                   @Valid
                                   @Schema(requiredMode = Schema.RequiredMode.NOT_REQUIRED, description = """
                                   The PNI-associated identity key for the account, encoded as a base64 string.
-                                  Must be provided for an account with a phone number or when recovering an account by
-                                  ID (even if the recovered account does not have a phone number, in which case
-                                  PNI-associated key material will be ignored). Must be absent when registering an
-                                  account without a phone number.
+                                  Must be provided when registering or recovering an account with a phone number. Must
+                                  be absent when registering an account without a phone number and may be absent when
+                                  recovering an account without a phone number.
                                   """)
                                   @JsonSerialize(using = IdentityKeyAdapter.Serializer.class)
                                   @JsonDeserialize(using = IdentityKeyAdapter.Deserializer.class)
