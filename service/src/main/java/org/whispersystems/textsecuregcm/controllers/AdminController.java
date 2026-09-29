@@ -134,6 +134,23 @@ public class AdminController {
     return Response.noContent().build();
   }
 
+  @DELETE
+  @Path("/accounts/{accountId}")
+  @Consumes(MediaType.APPLICATION_JSON)
+  public Response deleteAccount(@HeaderParam(HttpHeaders.AUTHORIZATION) final String authorization,
+      @HeaderParam("X-Admin-Confirmation") final String confirmation,
+      @PathParam("accountId") final UUID accountId, @NotNull @Valid final ReasonRequest request) {
+    final Principal principal = highRisk(authorization, Role.SUPER_ADMIN, confirmation, accountId.toString());
+    final Account account = accountsManager.getByAccountIdentifier(accountId).orElseThrow(NotFoundException::new);
+    final String before = "status=" + account.getAccountStatus().name() + "; devices=" + account.getDevices().size();
+
+    accountsManager.delete(accountId, AccountsManager.DeletionReason.ADMIN_DELETED);
+    auditManager.append(principal.subject(), "ACCOUNT_DELETED", accountId.toString(), before, "DELETED",
+        request.reason());
+
+    return Response.noContent().build();
+  }
+
   @GET
   @Path("/invitations/batches")
   public List<InvitationsManager.BatchSummary> listBatches(
