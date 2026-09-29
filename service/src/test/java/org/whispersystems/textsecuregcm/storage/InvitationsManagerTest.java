@@ -13,6 +13,7 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,7 @@ import software.amazon.awssdk.services.dynamodb.model.PutItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.PutItemResponse;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemRequest;
 import software.amazon.awssdk.services.dynamodb.model.UpdateItemResponse;
+import software.amazon.awssdk.services.dynamodb.paginators.ScanIterable;
 
 class InvitationsManagerTest {
   private static final Instant NOW = Instant.parse("2026-09-26T00:00:00Z");
@@ -97,6 +99,30 @@ class InvitationsManagerTest {
         .build());
     assertThatThrownBy(() -> manager.claim("abcdefghijklmnop", requestContext().getRequest().serialize()))
         .isExactlyInstanceOf(InvitationsManager.InvitationUnavailableException.class);
+  }
+
+  @Test
+  void deletingBatchRevokesAvailableInvitationsAndRetainsClaimedRecords() {
+    final ScanIterable scan = mock(ScanIterable.class);
+    when(dynamoDbClient.scanPaginator(any(software.amazon.awssdk.services.dynamodb.model.ScanRequest.class)))
+        .thenReturn(scan);
+    when(scan.items()).thenReturn(() -> List.of(
+        Map.of("A", AttributeValue.fromS("invitation:available"), "IB", AttributeValue.fromS("batch-1")),
+        Map.of("A", AttributeValue.fromS("invitation:claimed"), "IB", AttributeValue.fromS("batch-1")))
+        .iterator());
+    when(dynamoDbClient.updateItem(any(UpdateItemRequest.class)))
+        .thenReturn(UpdateItemResponse.builder().build())
+        .thenThrow(ConditionalCheckFailedException.builder().build())
+        .thenReturn(UpdateItemResponse.builder().build());
+
+    assertThat(manager.deleteBatch("batch-1"))
+        .isEqualTo(new InvitationsManager.DeleteBatchResult(2, 1));
+
+    final ArgumentCaptor<UpdateItemRequest> updates = ArgumentCaptor.forClass(UpdateItemRequest.class);
+    verify(dynamoDbClient, times(3)).updateItem(updates.capture());
+    assertThat(updates.getAllValues().get(0).updateExpression())
+        .isEqualTo("SET #state = :revoked, #hidden = :hidden");
+    assertThat(updates.getAllValues().get(2).updateExpression()).isEqualTo("SET #hidden = :hidden");
   }
 
   private ReceiptCredentialRequestContext requestContext() throws Exception {

@@ -12,6 +12,7 @@ import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.Consumes;
+import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.NotFoundException;
@@ -134,6 +135,20 @@ public class AdminController {
         String.valueOf(codes.size()), "validDays=" + request.validDays());
     return Response.ok(codes).header(HttpHeaders.CACHE_CONTROL, "no-store, max-age=0")
         .header("Pragma", "no-cache").build();
+  }
+
+  @DELETE
+  @Path("/invitations/batches/{batchId}")
+  @Consumes(MediaType.APPLICATION_JSON)
+  public Response deleteBatch(@HeaderParam(HttpHeaders.AUTHORIZATION) final String authorization,
+      @HeaderParam("X-Admin-Confirmation") final String confirmation,
+      @PathParam("batchId") final String batchId, @NotNull @Valid final ReasonRequest request) {
+    final Principal principal = highRisk(authorization, Role.INVITATION_OPERATOR, confirmation, batchId);
+    final InvitationsManager.DeleteBatchResult result = invitationsManager.deleteBatch(batchId);
+    if (result.invitations() == 0) throw new NotFoundException("invitation batch not found");
+    auditManager.append(principal.subject(), "INVITATION_BATCH_DELETED", batchId,
+        "invitations=" + result.invitations(), "hidden; revoked=" + result.revoked(), request.reason());
+    return Response.noContent().build();
   }
 
   @POST

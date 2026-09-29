@@ -47,6 +47,7 @@ public class InvitationsManager {
   private static final String RESPONSE = "IC";
   private static final String CLAIMED_AT = "IT";
   private static final String CREATED_AT = "II";
+  private static final String HIDDEN = "IH";
   private static final String AVAILABLE = "AVAILABLE";
   private static final String CLAIMED = "CLAIMED";
   private static final String REVOKED = "REVOKED";
@@ -149,13 +150,38 @@ public class InvitationsManager {
   public record BatchSummary(String batchId, long available, long claimed, long revoked, long expired,
                              Instant earliestCreation, Instant latestExpiration) {}
 
+  public record DeleteBatchResult(long invitations, long revoked) {}
+
+  /**
+   * Hides a batch from administration views and revokes every invitation that is still available.
+   * Claimed invitation records are deliberately retained so an interrupted registration can retry idempotently.
+   */
+  public DeleteBatchResult deleteBatch(final String batchId) {
+    if (batchId == null || batchId.isBlank() || batchId.length() > 128) {
+      throw new IllegalArgumentException("invalid invitation batch");
+    }
+
+    final long[] counts = new long[2];
+    dynamoDbClient.scanPaginator(ScanRequest.builder().tableName(table)
+        .filterExpression("#batch = :batch AND attribute_not_exists(#hidden)")
+        .expressionAttributeNames(Map.of("#batch", BATCH, "#hidden", HIDDEN))
+        .expressionAttributeValues(Map.of(":batch", s(batchId))).build()).items().forEach(item -> {
+          final AttributeValue key = item.get(KEY);
+          if (key == null || key.s() == null) return;
+          counts[0]++;
+          if (hideAndRevokeAvailable(key.s())) counts[1]++;
+          else hideInvitation(key.s(), batchId);
+        });
+    return new DeleteBatchResult(counts[0], counts[1]);
+  }
+
   /** Returns aggregate metadata only; invitation plaintext is never recoverable from storage. */
   public List<BatchSummary> listBatches() {
     record Mutable(long[] counts, Instant[] bounds) {}
     final Map<String, Mutable> batches = new java.util.HashMap<>();
     dynamoDbClient.scanPaginator(ScanRequest.builder().tableName(table)
-        .filterExpression("attribute_exists(#batch)")
-        .expressionAttributeNames(Map.of("#batch", BATCH)).build()).items().forEach(item -> {
+        .filterExpression("attribute_exists(#batch) AND attribute_not_exists(#hidden)")
+        .expressionAttributeNames(Map.of("#batch", BATCH, "#hidden", HIDDEN)).build()).items().forEach(item -> {
           final String batch = string(item, BATCH);
           if (batch == null) return;
           final Mutable summary = batches.computeIfAbsent(batch,
@@ -177,6 +203,33 @@ public class InvitationsManager {
       return new BatchSummary(entry.getKey(), value.counts()[0], value.counts()[1], value.counts()[2],
           value.counts()[3], value.bounds()[0].equals(Instant.MAX) ? null : value.bounds()[0], value.bounds()[1]);
     }).sorted(java.util.Comparator.comparing(BatchSummary::batchId)).toList();
+  }
+
+  private boolean hideAndRevokeAvailable(final String key) {
+    try {
+      dynamoDbClient.updateItem(UpdateItemRequest.builder().tableName(table).key(Map.of(KEY, s(key)))
+          .conditionExpression("#state = :available")
+          .updateExpression("SET #state = :revoked, #hidden = :hidden")
+          .expressionAttributeNames(Map.of("#state", STATE, "#hidden", HIDDEN))
+          .expressionAttributeValues(Map.of(":available", s(AVAILABLE), ":revoked", s(REVOKED),
+              ":hidden", AttributeValue.fromBool(true))).build());
+      return true;
+    } catch (final ConditionalCheckFailedException ignored) {
+      return false;
+    }
+  }
+
+  private void hideInvitation(final String key, final String batchId) {
+    try {
+      dynamoDbClient.updateItem(UpdateItemRequest.builder().tableName(table).key(Map.of(KEY, s(key)))
+          .conditionExpression("#batch = :batch")
+          .updateExpression("SET #hidden = :hidden")
+          .expressionAttributeNames(Map.of("#batch", BATCH, "#hidden", HIDDEN))
+          .expressionAttributeValues(Map.of(":batch", s(batchId), ":hidden", AttributeValue.fromBool(true)))
+          .build());
+    } catch (final ConditionalCheckFailedException ignored) {
+      // The invitation disappeared or changed batch after the scan; there is nothing safe to hide.
+    }
   }
 
   private boolean changeAvailableInvitation(final String code, final String update,
