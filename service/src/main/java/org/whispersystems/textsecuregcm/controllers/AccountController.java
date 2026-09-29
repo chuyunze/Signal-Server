@@ -239,7 +239,9 @@ public class AccountController {
         }
       });
 
-      a.setRegistrationLockFromAttributes(attributes);
+      if (a.getNumber().isPresent()) {
+        a.setRegistrationLockFromAttributes(attributes);
+      }
       a.setUnidentifiedAccessKey(attributes.getUnidentifiedAccessKey());
       a.setUnrestrictedUnidentifiedAccess(attributes.isUnrestrictedUnidentifiedAccess());
 

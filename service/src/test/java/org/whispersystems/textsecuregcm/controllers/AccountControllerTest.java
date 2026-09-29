@@ -870,6 +870,23 @@ class AccountControllerTest {
   }
 
   @Test
+  void testSetAccountAttributesForAccountWithNoNumber() {
+    try (final Response response = resources.getJerseyTest()
+        .target("/v1/accounts/attributes/")
+        .request()
+        .header(HttpHeaders.AUTHORIZATION, AuthHelper.getAuthHeader(AuthHelper.NUMBERLESS_UUID, AuthHelper.NUMBERLESS_PASSWORD))
+        .put(Entity.json(new AccountAttributes(false, 2222, 3333, null, null, false, null, null)
+            .setUnidentifiedAccessKey(new byte[16])))) {
+
+      assertThat(response.getStatus()).isEqualTo(204);
+      verify(AuthHelper.NUMBERLESS_ACCOUNT, never()).setRegistrationLockFromAttributes(any());
+      verify(AuthHelper.NUMBERLESS_ACCOUNT).setUnidentifiedAccessKey(any());
+      verify(AuthHelper.NUMBERLESS_ACCOUNT).setUnrestrictedUnidentifiedAccess(false);
+      verify(AuthHelper.NUMBERLESS_ACCOUNT).setDiscoverableByPhoneNumber(false);
+    }
+  }
+
+  @Test
   void testSetAccountAttributesEnableDiscovery() {
     try (final Response response = resources.getJerseyTest()
         .target("/v1/accounts/attributes/")
