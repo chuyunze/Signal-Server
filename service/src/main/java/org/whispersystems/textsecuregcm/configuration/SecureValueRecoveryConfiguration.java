@@ -19,5 +19,10 @@ public record SecureValueRecoveryConfiguration(
     @ExactlySize(32) SecretBytes userIdTokenSharedSecret,
     @NotEmpty List<@NotBlank String> svrCaCertificates,
     @Nullable String circuitBreakerConfigurationName,
-    @Nullable String retryConfigurationName) {
+    @Nullable String retryConfigurationName,
+    @Nullable Boolean enabled) {
+
+  public boolean isEnabled() {
+    return enabled == null || enabled;
+  }
 }

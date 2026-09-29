@@ -122,6 +122,7 @@ public class BackupManagerTest {
       randomSecretBytes(32),
       null,
       null,
+      null,
       null);
   private final ExternalServiceCredentialsGenerator svrbCredentialGenerator =
       SecureValueRecoveryBCredentialsGeneratorFactory.svrbCredentialsGenerator(CFG, testClock);

@@ -37,6 +37,7 @@ public class SecureValueRecoveryClient {
   private static final Logger logger = LoggerFactory.getLogger(SecureValueRecoveryClient.class);
 
   private final ExternalServiceCredentialsGenerator secureValueRecoveryCredentialsGenerator;
+  private final boolean enabled;
   private final URI deleteUri;
   private final Supplier<List<Integer>> allowedDeletionErrorStatusCodes;
   private final FaultTolerantHttpClient httpClient;
@@ -51,6 +52,7 @@ public class SecureValueRecoveryClient {
       Supplier<List<Integer>> allowedDeletionErrorStatusCodes)
       throws CertificateException {
     this.secureValueRecoveryCredentialsGenerator = secureValueRecoveryCredentialsGenerator;
+    this.enabled = configuration.isEnabled();
     this.deleteUri = URI.create(configuration.uri()).resolve(DELETE_PATH);
     this.allowedDeletionErrorStatusCodes = allowedDeletionErrorStatusCodes;
     this.httpClient = FaultTolerantHttpClient.newBuilder("secure-value-recovery", executor)
@@ -69,6 +71,10 @@ public class SecureValueRecoveryClient {
   }
 
   public CompletableFuture<Void> removeData(final String userIdentifier) {
+
+    if (!enabled) {
+      return CompletableFuture.completedFuture(null);
+    }
 
     final ExternalServiceCredentials credentials = secureValueRecoveryCredentialsGenerator.generateFor(userIdentifier);
 

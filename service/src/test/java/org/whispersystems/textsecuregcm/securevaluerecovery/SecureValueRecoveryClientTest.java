@@ -13,6 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.whispersystems.textsecuregcm.util.MockUtils.randomSecretBytes;
 
@@ -29,6 +30,7 @@ import java.util.concurrent.TimeUnit;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.RegisterExtension;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -44,6 +46,7 @@ class SecureValueRecoveryClientTest {
   private ExternalServiceCredentialsGenerator credentialsGenerator;
   private ExecutorService httpExecutor;
   private ScheduledExecutorService retryExecutor;
+  private SecureValueRecoveryConfiguration config;
 
   private SecureValueRecoveryClient secureValueRecoveryClient;
 
@@ -59,7 +62,7 @@ class SecureValueRecoveryClientTest {
     httpExecutor = Executors.newSingleThreadExecutor();
     retryExecutor = Executors.newSingleThreadScheduledExecutor();
 
-    final SecureValueRecoveryConfiguration config = new SecureValueRecoveryConfiguration(
+    config = new SecureValueRecoveryConfiguration(
         "http://localhost:" + wireMock.getPort(),
         randomSecretBytes(32),
         randomSecretBytes(32),
@@ -109,7 +112,7 @@ class SecureValueRecoveryClientTest {
             lY6ZKNA81Lm3YADYtObmK1IUrOPo9BeIaPy0UM08SmN880Vunqa91Q==
             -----END CERTIFICATE-----
             """),
-        null, null);
+        null, null, true);
 
     secureValueRecoveryClient = new SecureValueRecoveryClient(credentialsGenerator, httpExecutor, retryExecutor, config, () -> ALLOWED_ERRORS);
   }
@@ -148,5 +151,22 @@ class SecureValueRecoveryClientTest {
     } else {
       CompletableFutureTestUtil.assertFailsWithCause(SecureValueRecoveryException.class, deleteFuture);
     }
+  }
+
+  @Test
+  void deleteIsSkippedWhenDisabled() throws CertificateException {
+    final SecureValueRecoveryConfiguration disabledConfig = new SecureValueRecoveryConfiguration(
+        config.uri(),
+        config.userAuthenticationTokenSharedSecret(),
+        config.userIdTokenSharedSecret(),
+        config.svrCaCertificates(),
+        config.circuitBreakerConfigurationName(),
+        config.retryConfigurationName(),
+        false);
+    final SecureValueRecoveryClient disabledClient = new SecureValueRecoveryClient(
+        credentialsGenerator, httpExecutor, retryExecutor, disabledConfig, () -> ALLOWED_ERRORS);
+
+    assertDoesNotThrow(() -> disabledClient.removeData(accountUuid).join());
+    verifyNoInteractions(credentialsGenerator);
   }
 }
