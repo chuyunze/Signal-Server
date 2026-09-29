@@ -48,8 +48,9 @@ public class AdminController {
   private final AdminAuditManager auditManager;
   private final Clock clock;
 
-  public record AccountSummary(UUID accountId, AccountStatus status, long statusVersion,
-                               Instant statusUpdatedAt, int deviceCount, long primaryDeviceLastSeen) {}
+  public record AccountSummary(UUID accountId, boolean usernameConfigured, AccountStatus status, long statusVersion,
+                               Instant statusUpdatedAt, int deviceCount, Instant registeredAt, Instant lastActiveAt) {}
+  public record AccountPage(List<AccountSummary> accounts, String nextCursor) {}
   public record StatusRequest(@NotNull AccountStatus status, @NotBlank String reason) {}
   public record ReasonRequest(@NotBlank String reason) {}
   public record CreateBatchRequest(@NotBlank String batchId, @Min(1) @Max(10_000) int count,
@@ -81,6 +82,25 @@ public class AdminController {
     final Principal principal = authorizer.authenticate(authorization);
     principal.require(Role.ACCOUNT_OPERATOR);
     return summarize(accountsManager.getByAccountIdentifier(accountId).orElseThrow(NotFoundException::new));
+  }
+
+  @GET
+  @Path("/accounts")
+  public AccountPage listAccounts(@HeaderParam(HttpHeaders.AUTHORIZATION) final String authorization,
+      @QueryParam("cursor") final String cursor, @QueryParam("limit") final Integer limit) {
+    final Principal principal = authorizer.authenticate(authorization);
+    principal.require(Role.ACCOUNT_OPERATOR);
+    final int pageSize = limit == null ? 50 : limit;
+    if (pageSize < 1 || pageSize > 100) throw new BadRequestException("limit must be between 1 and 100");
+    final UUID parsedCursor;
+    try {
+      parsedCursor = cursor == null || cursor.isBlank() ? null : UUID.fromString(cursor);
+    } catch (final IllegalArgumentException e) {
+      throw new BadRequestException("invalid account cursor");
+    }
+    final AccountsManager.AccountPage page = accountsManager.listAccounts(pageSize, parsedCursor);
+    return new AccountPage(page.accounts().stream().map(AdminController::summarize).toList(),
+        page.nextCursor() == null ? null : page.nextCursor().toString());
   }
 
   @POST
@@ -200,8 +220,10 @@ public class AdminController {
   }
 
   private static AccountSummary summarize(final Account account) {
-    return new AccountSummary(account.getAccountIdentifier(), account.getAccountStatus(),
-        account.getAccountStatusVersion(), account.getAccountStatusUpdatedAt().orElse(null),
-        account.getDevices().size(), account.getPrimaryDevice().getLastSeen());
+    return new AccountSummary(account.getAccountIdentifier(), account.getUsernameHash().isPresent(),
+        account.getAccountStatus(), account.getAccountStatusVersion(),
+        account.getAccountStatusUpdatedAt().orElse(null), account.getDevices().size(),
+        Instant.ofEpochMilli(account.getPrimaryDevice().getCreated()),
+        Instant.ofEpochMilli(account.getPrimaryDevice().getLastSeen()));
   }
 }

@@ -1459,6 +1459,13 @@ public class AccountsManager extends RedisPubSubAdapter<String, String> implemen
     return accounts.getAll(segments, scheduler);
   }
 
+  public record AccountPage(List<Account> accounts, @Nullable UUID nextCursor) {}
+
+  public AccountPage listAccounts(final int limit, @Nullable final UUID cursor) {
+    final Accounts.AccountPage page = accounts.getPage(limit, cursor);
+    return new AccountPage(page.accounts(), page.nextCursor());
+  }
+
   public void disconnectAllDevices(final Account account) {
     disconnectionRequestManager.requestDisconnection(account);
   }

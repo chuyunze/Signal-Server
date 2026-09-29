@@ -156,6 +156,24 @@ class AccountsTest {
         Tables.USED_LINK_DEVICE_TOKENS.tableName());
   }
 
+  @Test
+  void accountPagesUseContinuationWithoutRepeatingAccounts() {
+    final Set<UUID> expected = Set.of(
+        createAccount(false).getAccountIdentifier(),
+        createAccount(false).getAccountIdentifier(),
+        createAccount(false).getAccountIdentifier());
+
+    final Accounts.AccountPage first = accounts.getPage(2, null);
+    assertThat(first.accounts()).hasSize(2);
+    assertThat(first.nextCursor()).isNotNull();
+
+    final Accounts.AccountPage second = accounts.getPage(2, first.nextCursor());
+    assertThat(second.accounts()).hasSize(1);
+    assertThat(second.nextCursor()).isNull();
+    assertThat(Stream.concat(first.accounts().stream(), second.accounts().stream())
+        .map(Account::getAccountIdentifier)).containsExactlyInAnyOrderElementsOf(expected);
+  }
+
   @ParameterizedTest
   @ValueSource(strings = {"+14151112222"})
   @NullSource

@@ -1460,6 +1460,28 @@ public class Accounts {
         .sequential();
   }
 
+  record AccountPage(List<Account> accounts, @Nullable UUID nextCursor) {}
+
+  AccountPage getPage(final int limit, @Nullable final UUID cursor) {
+    if (limit < 1 || limit > 100) {
+      throw new IllegalArgumentException("account page limit must be between 1 and 100");
+    }
+
+    final ScanRequest.Builder request = ScanRequest.builder()
+        .tableName(accountsTableName)
+        .consistentRead(false)
+        .limit(limit);
+    if (cursor != null) {
+      request.exclusiveStartKey(Map.of(KEY_ACCOUNT_UUID, AttributeValues.fromUUID(cursor)));
+    }
+
+    final var response = dynamoDbClient.scan(request.build());
+    final UUID nextCursor = response.hasLastEvaluatedKey()
+        ? AttributeValues.getUUID(response.lastEvaluatedKey(), KEY_ACCOUNT_UUID, null)
+        : null;
+    return new AccountPage(response.items().stream().map(Accounts::fromItem).toList(), nextCursor);
+  }
+
   Flux<UUID> getAllAccountIdentifiers(final int segments, final Scheduler scheduler) {
     if (segments < 1) {
       throw new IllegalArgumentException("Total number of segments must be positive");
