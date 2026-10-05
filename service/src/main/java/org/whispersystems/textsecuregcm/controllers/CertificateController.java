@@ -80,14 +80,19 @@ public class CertificateController {
   public DeliveryCertificate getDeliveryCertificate(@Auth AuthenticatedDevice auth,
       @QueryParam("includeE164") @DefaultValue("true") boolean includeE164) {
 
-    Metrics.counter(GENERATE_DELIVERY_CERTIFICATE_COUNTER_NAME, INCLUDE_E164_TAG_NAME, String.valueOf(includeE164))
-        .increment();
-
     final Account account = accountsManager.getByAccountIdentifier(auth.accountIdentifier())
         .orElseThrow(() -> new WebApplicationException(Response.Status.UNAUTHORIZED));
 
+    // Legacy clients request an E164-bearing certificate by default. Numberless accounts
+    // have no E164, so transparently issue the UUID-only certificate instead.
+    final boolean shouldIncludeE164 = includeE164 && account.getNumber().isPresent();
+
+    Metrics.counter(GENERATE_DELIVERY_CERTIFICATE_COUNTER_NAME, INCLUDE_E164_TAG_NAME,
+            String.valueOf(shouldIncludeE164))
+        .increment();
+
     try {
-      return new DeliveryCertificate(certificateGenerator.createFor(account, auth.deviceId(), includeE164));
+      return new DeliveryCertificate(certificateGenerator.createFor(account, auth.deviceId(), shouldIncludeE164));
     } catch (final IllegalArgumentException _) {
       throw new BadRequestException();
     }

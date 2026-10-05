@@ -220,16 +220,21 @@ class CertificateControllerTest {
   }
 
   @Test
-  void testValidCertificateAccountHasNoNumber() {
-    final Response response = resources.getJerseyTest()
+  void testValidCertificateAccountHasNoNumberFallsBackToUuidOnly() throws Exception {
+    final DeliveryCertificate certificateObject = resources.getJerseyTest()
         .target("/v1/certificate/delivery")
-        .queryParam("includeUuid", "true")
-        .queryParam("includeE164", "true")
         .request()
         .header("Authorization", AuthHelper.getAuthHeader(AuthHelper.NUMBERLESS_UUID, AuthHelper.NUMBERLESS_PASSWORD))
-        .get();
+        .get(DeliveryCertificate.class);
 
-    assertEquals(400, response.getStatus());
+    final SenderCertificate certificateHolder = SenderCertificate.parseFrom(certificateObject.getCertificate());
+    final SenderCertificate.Certificate certificate = SenderCertificate.Certificate.parseFrom(
+        certificateHolder.getCertificate());
+
+    assertTrue(StringUtils.isBlank(certificate.getSenderE164()));
+    assertEquals(1L, certificate.getSenderDevice());
+    assertEquals(UUIDUtil.toByteString(AuthHelper.NUMBERLESS_UUID), certificate.getSenderUuid());
+    assertArrayEquals(AuthHelper.VALID_IDENTITY.serialize(), certificate.getIdentityKey().toByteArray());
   }
 
   @ParameterizedTest
