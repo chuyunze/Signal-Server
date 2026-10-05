@@ -1,0 +1,2 @@
+org.whispersystems.textsecuregcm.configuration.MonitoredS3ObjectConfiguration
+org.whispersystems.textsecuregcm.configuration.DisabledS3ObjectMonitorFactory
